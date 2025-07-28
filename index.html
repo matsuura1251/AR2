@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>WebAR 土地境界表示システム</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/aframe-ar.min.js"></script>
+    <style>
+        body {
+            requestFullscreen() {
+                const element = document.documentElement;
+                
+                if (element.requestFullscreen) {
+                    element.requestFullscreen();
+                } else if (element.webkitRequestFullscreen) {
+                    element.webkitRequestFullscreen();
+                } else if (element.mozRequestFullScreen) {
+                    element.mozRequestFullScreen();
+                } else if (element.msRequestFullscreen) {
+                    element.msRequestFullscreen();
+                }
+            }
+            
+            toggleControlPanel() {
+                const panel = document.getElementById('controlPanel');
+                const collapseBtn = document.getElementById('collapseBtn');
+                
+                panel.classList.toggle('collapsed');
+                collapseBtn.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+            }
+            detectDevice() {
+                let deviceInfo = 'デスクトップ';
+                if (/iPad/.test(navigator.userAgent)) {
+                    deviceInfo = 'iPad';
+                } else if (/iPhone/.test(navigator.userAgent)) {
+                    deviceInfo = 'iPhone';
+                } else if (/Android/.test(navigator.userAgent)) {
+                    deviceInfo = 'Android';
+                }
+                
+                document.getElementById('deviceInfo').textContent = deviceInfo;
+                
+                // iPadの場合は追加の最適化
+                if (this.isIOS) {
+                    document.body.style.webkitTextSizeAdjust = '100%';
+                }
+            }
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        
+        #arjsDebugUIContainer {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+        }
+        
+        .control-panel {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            z-index: 1000;
+            max-width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .control-panel h3 {
+            margin: 0 0 15px 0;
+            color: #4CAF50;
+        }
+        
+        .control-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+        
+        .control-row label {
+            min-width: 80px;
+            font-size: 12px;
+        }
+        
+        .control-row input, .control-row select, .control-row button {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            min-height: 34px;
+        }
+        
+        .control-row button {
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+        
+        .control-row button:active {
+            background: #45a049;
+            transform: scale(0.98);
+        }
+        
+        .status {
+            background: rgba(0, 0, 255, 0.2);
+            border: 1px solid #4CAF50;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        
+        .coordinates-display {
+            background: rgba(0, 0, 0, 0.9);
+            color: #00ff00;
+            padding: 10px;
+            font-family: monospace;
+            font-size: 11px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            font-size: 18px;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4CAF50;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* iPad専用スタイル */
+        @media screen and (min-width: 768px) and (max-width: 1024px) {
+            .control-panel {
+                max-width: 350px;
+                font-size: 16px;
+            }
+            
+            .control-row {
+                margin-bottom: 15px;
+            }
+            
+            .control-row input, .control-row select, .control-row button {
+                min-height: 40px;
+                font-size: 16px;
+            }
+        }
+        
+        /* コントロールパネル折りたたみ機能 */
+        .control-panel.collapsed {
+            transform: translateX(-85%);
+            transition: transform 0.3s ease;
+        }
+        
+        .control-panel.collapsed:hover {
+            transform: translateX(0);
+        }
+        
+        .collapse-btn {
+            position: absolute;
+            right: -30px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 8px;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            font-size: 18px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen">
+        <div class="spinner"></div>
+        <div>WebARシステムを初期化中...</div>
+        <div style="font-size: 14px; margin-top: 10px;">カメラへのアクセスを許可してください</div>
+    </div>
+
+    <div class="control-panel" id="controlPanel">
+        <button class="collapse-btn" id="collapseBtn">◀</button>
+        <h3>🏞️ 土地境界AR</h3>
+        
+        <div class="control-row">
+            <label>境界線色:</label>
+            <select id="boundaryColor">
+                <option value="#ff0000">赤</option>
+                <option value="#00ff00">緑</option>
+                <option value="#0000ff">青</option>
+                <option value="#ffff00">黄</option>
+                <option value="#ff00ff">マゼンタ</option>
+            </select>
+        </div>
+        
+        <div class="control-row">
+            <label>線の太さ:</label>
+            <input type="range" id="lineWidth" min="0.05" max="0.5" step="0.05" value="0.1">
+        </div>
+        
+        <div class="control-row">
+            <label>境界高さ:</label>
+            <input type="range" id="boundaryHeight" min="0.5" max="5" step="0.5" value="2">
+        </div>
+        
+        <div class="control-row">
+            <button id="addSampleBoundary">サンプル境界追加</button>
+            <button id="clearBoundaries">境界をクリア</button>
+        </div>
+        
+        <div class="control-row">
+            <button id="requestFullscreen">フルスクリーン</button>
+            <button id="togglePanel">パネル非表示</button>
+        </div>
+        <div class="control-row">
+            <button id="toggleCoords">座標表示切替</button>
+            <button id="saveConfig">設定保存</button>
+        </div>
+        
+        <div class="status">
+            <div>デバイス: <span id="deviceInfo">検出中</span></div>
+            <div>ステータス: <span id="status">初期化中</span></div>
+            <div>境界数: <span id="boundaryCount">0</span></div>
+            <div>GPS: <span id="gpsStatus">取得中</span></div>
+        </div>
+        
+        <div id="coordinatesPanel" class="coordinates-display" style="display: none;">
+            <div><strong>現在の境界座標:</strong></div>
+            <div id="coordinatesList"></div>
+        </div>
+    </div>
+
+    <script>
+        class WebARLandBoundary {
+            constructor() {
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.boundaries = [];
+                this.currentLocation = { lat: 0, lng: 0, alt: 0 };
+                this.isInitialized = false;
+                this.coordinatesVisible = false;
+                this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                this.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+                
+                this.detectDevice();
+                this.init();
+            }
+            
+            async init() {
+                try {
+                    await this.setupAR();
+                    await this.getCurrentLocation();
+                    this.setupControls();
+                    this.addSampleBoundaries();
+                    this.hideLoadingScreen();
+                    this.updateStatus('準備完了');
+                } catch (error) {
+                    console.error('初期化エラー:', error);
+                    this.updateStatus('エラー: ' + error.message);
+                }
+            }
+            
+            async setupAR() {
+                // Three.jsシーンの設定
+                this.scene = new THREE.Scene();
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                
+                // iOSでのレンダラー最適化
+                const rendererOptions = { 
+                    antialias: !this.isIOS, // iOSではアンチエイリアシングを無効化してパフォーマンス向上
+                    alpha: true,
+                    powerPreference: 'high-performance'
+                };
+                
+                this.renderer = new THREE.WebGLRenderer(rendererOptions);
+                this.renderer.setPixelRatio(this.devicePixelRatio);
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                this.renderer.shadowMap.enabled = false; // 影を無効化してパフォーマンス向上
+                
+                document.body.appendChild(this.renderer.domElement);
+                
+                // ライティングの設定（軽量化）
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+                this.scene.add(ambientLight);
+                
+                // レンダリングループ
+                this.animate();
+                
+                this.isInitialized = true;
+            }
+            
+            async getCurrentLocation() {
+                return new Promise((resolve, reject) => {
+                    if (!navigator.geolocation) {
+                        reject(new Error('位置情報サービスが利用できません'));
+                        return;
+                    }
+                    
+                    navigator.geolocation.getCurrentPosition(
+                        (position) => {
+                            this.currentLocation = {
+                                lat: position.coords.latitude,
+                                lng: position.coords.longitude,
+                                alt: position.coords.altitude || 0
+                            };
+                            this.updateGPSStatus(`${this.currentLocation.lat.toFixed(6)}, ${this.currentLocation.lng.toFixed(6)}`);
+                            resolve();
+                        },
+                        (error) => {
+                            console.warn('GPS取得エラー:', error);
+                            // デモ用のデフォルト座標（東京駅付近）
+                            this.currentLocation = { lat: 35.6812, lng: 139.7671, alt: 0 };
+                            this.updateGPSStatus('デモ座標使用');
+                            resolve();
+                        },
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+                    );
+                });
+            }
+            
+            setupControls() {
+                const boundaryColorSelect = document.getElementById('boundaryColor');
+                const lineWidthSlider = document.getElementById('lineWidth');
+                const boundaryHeightSlider = document.getElementById('boundaryHeight');
+                const addSampleBtn = document.getElementById('addSampleBoundary');
+                const clearBoundariesBtn = document.getElementById('clearBoundaries');
+                const toggleCoordsBtn = document.getElementById('toggleCoords');
+                const saveConfigBtn = document.getElementById('saveConfig');
+                const requestFullscreenBtn = document.getElementById('requestFullscreen');
+                const togglePanelBtn = document.getElementById('togglePanel');
+                const collapseBtn = document.getElementById('collapseBtn');
+                
+                boundaryColorSelect.addEventListener('change', () => this.updateBoundaryAppearance());
+                lineWidthSlider.addEventListener('input', () => this.updateBoundaryAppearance());
+                boundaryHeightSlider.addEventListener('input', () => this.updateBoundaryAppearance());
+                addSampleBtn.addEventListener('click', () => this.addSampleBoundaries());
+                clearBoundariesBtn.addEventListener('click', () => this.clearAllBoundaries());
+                toggleCoordsBtn.addEventListener('click', () => this.toggleCoordinatesDisplay());
+                saveConfigBtn.addEventListener('click', () => this.saveConfiguration());
+                requestFullscreenBtn.addEventListener('click', () => this.requestFullscreen());
+                togglePanelBtn.addEventListener('click', () => this.toggleControlPanel());
+                collapseBtn.addEventListener('click', () => this.toggleControlPanel());
+                
+                // タッチイベントの最適化
+                if (this.isIOS) {
+                    document.addEventListener('touchstart', () => {}, { passive: true });
+                    document.addEventListener('touchmove', () => {}, { passive: true });
+                }
+                
+                // ウィンドウリサイズ対応
+                window.addEventListener('resize', () => {
+                    this.camera.aspect = window.innerWidth / window.innerHeight;
+                    this.camera.updateProjectionMatrix();
+                    this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+                
+                // 画面の向き変更対応
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => {
+                        this.camera.aspect = window.innerWidth / window.innerHeight;
+                        this.camera.updateProjectionMatrix();
+                        this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    }, 100);
+                });
+            }
+            
+            latLngToScene(lat, lng, alt = 0) {
+                // GPS座標をシーン座標に変換（簡易版）
+                const earthRadius = 6371000; // 地球半径（メートル）
+                const latRad = lat * Math.PI / 180;
+                const lngRad = lng * Math.PI / 180;
+                const baseLatRad = this.currentLocation.lat * Math.PI / 180;
+                const baseLngRad = this.currentLocation.lng * Math.PI / 180;
+                
+                const x = earthRadius * (lngRad - baseLngRad) * Math.cos(baseLatRad);
+                const z = earthRadius * (baseLatRad - latRad);
+                const y = alt - this.currentLocation.alt;
+                
+                return new THREE.Vector3(x, y, z);
+            }
+            
+            createBoundaryLine(coordinates, height = 2) {
+                if (coordinates.length < 2) return null;
+                
+                const points = [];
+                const groundPoints = [];
+                const topPoints = [];
+                
+                coordinates.forEach(coord => {
+                    const scenePos = this.latLngToScene(coord.lat, coord.lng, coord.alt || 0);
+                    groundPoints.push(scenePos);
+                    topPoints.push(new THREE.Vector3(scenePos.x, scenePos.y + height, scenePos.z));
+                });
+                
+                // 境界線を閉じる
+                if (coordinates.length > 2) {
+                    groundPoints.push(groundPoints[0]);
+                    topPoints.push(topPoints[0]);
+                }
+                
+                const group = new THREE.Group();
+                
+                // 地面の境界線
+                const groundGeometry = new THREE.BufferGeometry().setFromPoints(groundPoints);
+                const groundMaterial = new THREE.LineBasicMaterial({ 
+                    color: document.getElementById('boundaryColor').value,
+                    linewidth: parseFloat(document.getElementById('lineWidth').value) * 10
+                });
+                const groundLine = new THREE.Line(groundGeometry, groundMaterial);
+                group.add(groundLine);
+                
+                // 上部の境界線
+                const topGeometry = new THREE.BufferGeometry().setFromPoints(topPoints);
+                const topMaterial = new THREE.LineBasicMaterial({ 
+                    color: document.getElementById('boundaryColor').value,
+                    linewidth: parseFloat(document.getElementById('lineWidth').value) * 10
+                });
+                const topLine = new THREE.Line(topGeometry, topMaterial);
+                group.add(topLine);
+                
+                // 垂直線
+                for (let i = 0; i < groundPoints.length - 1; i++) {
+                    const verticalPoints = [groundPoints[i], topPoints[i]];
+                    const verticalGeometry = new THREE.BufferGeometry().setFromPoints(verticalPoints);
+                    const verticalMaterial = new THREE.LineBasicMaterial({ 
+                        color: document.getElementById('boundaryColor').value,
+                        linewidth: parseFloat(document.getElementById('lineWidth').value) * 5
+                    });
+                    const verticalLine = new THREE.Line(verticalGeometry, verticalMaterial);
+                    group.add(verticalLine);
+                }
+                
+                // 半透明の境界面
+                if (coordinates.length > 2) {
+                    const shape = new THREE.Shape();
+                    shape.moveTo(groundPoints[0].x, groundPoints[0].z);
+                    for (let i = 1; i < groundPoints.length - 1; i++) {
+                        shape.lineTo(groundPoints[i].x, groundPoints[i].z);
+                    }
+                    
+                    const extrudeSettings = {
+                        depth: height,
+                        bevelEnabled: false
+                    };
+                    
+                    const geometry = new THREE.ExtrudeGeometry(shape, extrudeSettings);
+                    const material = new THREE.MeshBasicMaterial({ 
+                        color: document.getElementById('boundaryColor').value,
+                        transparent: true,
+                        opacity: 0.1,
+                        side: THREE.DoubleSide
+                    });
+                    const mesh = new THREE.Mesh(geometry, material);
+                    mesh.rotation.x = -Math.PI / 2;
+                    group.add(mesh);
+                }
+                
+                return group;
+            }
+            
+            addBoundary(coordinates, metadata = {}) {
+                const height = parseFloat(document.getElementById('boundaryHeight').value);
+                const boundaryMesh = this.createBoundaryLine(coordinates, height);
+                
+                if (boundaryMesh) {
+                    this.scene.add(boundaryMesh);
+                    this.boundaries.push({
+                        coordinates,
+                        mesh: boundaryMesh,
+                        metadata,
+                        id: Date.now()
+                    });
+                    
+                    this.updateBoundaryCount();
+                    this.updateCoordinatesDisplay();
+                }
+            }
+            
+            addSampleBoundaries() {
+                // サンプル境界データ（現在位置周辺の仮想的な土地境界）
+                const sampleBoundaries = [
+                    {
+                        coordinates: [
+                            { lat: this.currentLocation.lat + 0.0001, lng: this.currentLocation.lng + 0.0001 },
+                            { lat: this.currentLocation.lat + 0.0001, lng: this.currentLocation.lng + 0.0003 },
+                            { lat: this.currentLocation.lat + 0.0003, lng: this.currentLocation.lng + 0.0003 },
+                            { lat: this.currentLocation.lat + 0.0003, lng: this.currentLocation.lng + 0.0001 }
+                        ],
+                        metadata: { name: '区画A', owner: '田中太郎', area: '200m²' }
+                    },
+                    {
+                        coordinates: [
+                            { lat: this.currentLocation.lat - 0.0001, lng: this.currentLocation.lng + 0.0001 },
+                            { lat: this.currentLocation.lat - 0.0001, lng: this.currentLocation.lng + 0.0002 },
+                            { lat: this.currentLocation.lat - 0.0002, lng: this.currentLocation.lng + 0.0002 },
+                            { lat: this.currentLocation.lat - 0.0002, lng: this.currentLocation.lng + 0.0001 }
+                        ],
+                        metadata: { name: '区画B', owner: '佐藤花子', area: '150m²' }
+                    }
+                ];
+                
+                sampleBoundaries.forEach(boundary => {
+                    this.addBoundary(boundary.coordinates, boundary.metadata);
+                });
+            }
+            
+            clearAllBoundaries() {
+                this.boundaries.forEach(boundary => {
+                    this.scene.remove(boundary.mesh);
+                });
+                this.boundaries = [];
+                this.updateBoundaryCount();
+                this.updateCoordinatesDisplay();
+            }
+            
+            updateBoundaryAppearance() {
+                this.boundaries.forEach(boundary => {
+                    this.scene.remove(boundary.mesh);
+                    const height = parseFloat(document.getElementById('boundaryHeight').value);
+                    boundary.mesh = this.createBoundaryLine(boundary.coordinates, height);
+                    this.scene.add(boundary.mesh);
+                });
+            }
+            
+            toggleCoordinatesDisplay() {
+                this.coordinatesVisible = !this.coordinatesVisible;
+                const panel = document.getElementById('coordinatesPanel');
+                panel.style.display = this.coordinatesVisible ? 'block' : 'none';
+                
+                if (this.coordinatesVisible) {
+                    this.updateCoordinatesDisplay();
+                }
+            }
+            
+            updateCoordinatesDisplay() {
+                if (!this.coordinatesVisible) return;
+                
+                const coordsList = document.getElementById('coordinatesList');
+                let html = '';
+                
+                this.boundaries.forEach((boundary, index) => {
+                    html += `<div><strong>境界 ${index + 1}:</strong> ${boundary.metadata.name || 'unnamed'}</div>`;
+                    boundary.coordinates.forEach((coord, coordIndex) => {
+                        html += `<div>${coordIndex + 1}: ${coord.lat.toFixed(8)}, ${coord.lng.toFixed(8)}</div>`;
+                    });
+                    html += '<div>---</div>';
+                });
+                
+                coordsList.innerHTML = html;
+            }
+            
+            saveConfiguration() {
+                const config = {
+                    boundaries: this.boundaries.map(b => ({
+                        coordinates: b.coordinates,
+                        metadata: b.metadata
+                    })),
+                    settings: {
+                        color: document.getElementById('boundaryColor').value,
+                        lineWidth: document.getElementById('lineWidth').value,
+                        height: document.getElementById('boundaryHeight').value
+                    },
+                    location: this.currentLocation,
+                    timestamp: new Date().toISOString()
+                };
+                
+                const dataStr = JSON.stringify(config, null, 2);
+                const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(dataBlob);
+                
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `land_boundaries_${Date.now()}.json`;
+                link.click();
+                
+                URL.revokeObjectURL(url);
+                this.updateStatus('設定を保存しました');
+            }
+            
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                if (this.renderer && this.scene && this.camera) {
+                    this.renderer.render(this.scene, this.camera);
+                }
+            }
+            
+            updateStatus(status) {
+                document.getElementById('status').textContent = status;
+            }
+            
+            updateBoundaryCount() {
+                document.getElementById('boundaryCount').textContent = this.boundaries.length;
+            }
+            
+            updateGPSStatus(status) {
+                document.getElementById('gpsStatus').textContent = status;
+            }
+            
+            hideLoadingScreen() {
+                const loadingScreen = document.getElementById('loadingScreen');
+                loadingScreen.style.opacity = '0';
+                setTimeout(() => {
+                    loadingScreen.style.display = 'none';
+                }, 500);
+            }
+        }
+        
+        // アプリケーション開始
+        document.addEventListener('DOMContentLoaded', () => {
+            new WebARLandBoundary();
+        });
+    </script>
+</body>
+</html>
