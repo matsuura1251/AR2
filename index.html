@@ -1,4 +1,97 @@
-<!DOCTYPE html>
+            async requestAllPermissions() {
+                this.updateStatus('アクセス許可を要求中...');
+                
+                try {
+                    // カメラアクセス許可
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'environment',
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        } 
+                    });
+                    
+                    // ストリームを停止（テスト用）
+                    stream.getTracks().forEach(track => track.stop());
+                    this.updateStatus('カメラアクセス許可: ✅');
+                    
+                    // 位置情報アクセス許可
+                    await this.getCurrentLocation();
+                    this.updateStatus('すべてのアクセス許可: ✅');
+                    
+                } catch (error) {
+                    console.error('アクセス許可エラー:', error);
+                    this.updateStatus('❌ アクセス許可エラー: ' + error.message);
+                    
+                    // より詳細なエラー情報を表示
+                    if (error.name === 'NotAllowedError') {
+                        alert('カメラまたは位置情報のアクセスが拒否されました。\n\nSafari設定で許可を確認してください:\n1. 設定 > Safari > カメラ\n2. 設定 > プライバシー > 位置情報サービス');
+                    } else if (error.name === 'NotFoundError') {
+                        alert('カメラデバイスが見つかりません。');
+                    } else if (error.name === 'NotSupportedError') {
+                        alert('このブラウザではカメラアクセスがサポートされていません。');
+                    }
+                }
+            }
+            
+            async testCameraAccess() {
+                this.updateStatus('カメラテスト中...');
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { facingMode: 'environment' } 
+                    });
+                    
+                    // テスト用ビデオ要素を作成
+                    const video = document.createElement('video');
+                    video.srcObject = stream;
+                    video.style.position = 'fixed';
+                    video.style.top = '50px';
+                    video.style.right = '10px';
+                    video.style.width = '200px';
+                    video.style.height = '150px';
+                    video.style.zIndex = '1001';
+                    video.style.border = '2px solid #4CAF50';
+                    video.autoplay = true;
+                    video.muted = true;
+                    
+                    document.body.appendChild(video);
+                    
+                    // 5秒後に削除
+                    setTimeout(() => {
+                        stream.getTracks().forEach(track => track.stop());
+                        document.body.removeChild(video);
+                        this.updateStatus('カメラテスト完了 ✅');
+                    }, 5000);
+                    
+                    this.updateStatus('カメラアクセス成功 - 5秒間テスト表示');
+                    
+                } catch (error) {
+                    console.error('カメラテストエラー:', error);
+                    this.updateStatus('❌ カメラテストエラー: ' + error.name);
+                    
+                    let errorMessage = 'カメラアクセスに失敗しました。\n\n';
+                    switch (error.name) {
+                        case 'NotAllowedError':
+                            errorMessage += '原因: アクセス許可が拒否されています\n解決法: Safari設定でカメラアクセスを許可してください';
+                            break;
+                        case 'NotFoundError':
+                            errorMessage += '原因: カメラデバイスが見つかりません\n解決法: 他のアプリでカメラを使用していないか確認してください';
+                            break;
+                        case 'NotSupportedError':
+                            errorMessage += '原因: ブラウザがカメラアクセスをサポートしていません\n解決法: 最新のSafariを使用してください';
+                            break;
+                        default:
+                            errorMessage += '原因: ' + error.message;
+                    }
+                    alert(errorMessage);
+                }
+            }
+                const requestPermissionsBtn = document.getElementById('requestPermissions');
+                const testCameraBtn = document.getElementById('testCamera');
+                
+                requestPermissionsBtn.addEventListener('click', () => this.requestAllPermissions());
+                testCameraBtn.addEventListener('click', () => this.testCameraAccess());<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -250,8 +343,13 @@
         </div>
         
         <div class="control-row">
+            <button id="requestPermissions">アクセス許可</button>
             <button id="requestFullscreen">フルスクリーン</button>
+        </div>
+        
+        <div class="control-row">
             <button id="togglePanel">パネル非表示</button>
+            <button id="testCamera">カメラテスト</button>
         </div>
         <div class="control-row">
             <button id="toggleCoords">座標表示切替</button>
@@ -338,6 +436,13 @@
                         return;
                     }
                     
+                    // 高精度オプション
+                    const options = {
+                        enableHighAccuracy: true,
+                        timeout: 15000,
+                        maximumAge: 300000
+                    };
+                    
                     navigator.geolocation.getCurrentPosition(
                         (position) => {
                             this.currentLocation = {
@@ -350,12 +455,30 @@
                         },
                         (error) => {
                             console.warn('GPS取得エラー:', error);
+                            
+                            let errorMessage = '';
+                            switch (error.code) {
+                                case error.PERMISSION_DENIED:
+                                    errorMessage = '位置情報のアクセスが拒否されました';
+                                    alert('位置情報アクセスが拒否されました。\n\nSafari設定で許可してください:\n設定 > プライバシー > 位置情報サービス > Safari Webサイト');
+                                    break;
+                                case error.POSITION_UNAVAILABLE:
+                                    errorMessage = '位置情報が利用できません';
+                                    break;
+                                case error.TIMEOUT:
+                                    errorMessage = '位置情報の取得がタイムアウトしました';
+                                    break;
+                                default:
+                                    errorMessage = '位置情報取得エラー';
+                                    break;
+                            }
+                            
                             // デモ用のデフォルト座標（東京駅付近）
                             this.currentLocation = { lat: 35.6812, lng: 139.7671, alt: 0 };
-                            this.updateGPSStatus('デモ座標使用');
+                            this.updateGPSStatus('デモ座標使用: ' + errorMessage);
                             resolve();
                         },
-                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 }
+                        options
                     );
                 });
             }
