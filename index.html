@@ -2,16 +2,60 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>WebAR 土地境界表示システム</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ar.js/2.2.2/aframe-ar.min.js"></script>
     <style>
         body {
+            requestFullscreen() {
+                const element = document.documentElement;
+                
+                if (element.requestFullscreen) {
+                    element.requestFullscreen();
+                } else if (element.webkitRequestFullscreen) {
+                    element.webkitRequestFullscreen();
+                } else if (element.mozRequestFullScreen) {
+                    element.mozRequestFullScreen();
+                } else if (element.msRequestFullscreen) {
+                    element.msRequestFullscreen();
+                }
+            }
+            
+            toggleControlPanel() {
+                const panel = document.getElementById('controlPanel');
+                const collapseBtn = document.getElementById('collapseBtn');
+                
+                panel.classList.toggle('collapsed');
+                collapseBtn.textContent = panel.classList.contains('collapsed') ? '▶' : '◀';
+            }
+            detectDevice() {
+                let deviceInfo = 'デスクトップ';
+                if (/iPad/.test(navigator.userAgent)) {
+                    deviceInfo = 'iPad';
+                } else if (/iPhone/.test(navigator.userAgent)) {
+                    deviceInfo = 'iPhone';
+                } else if (/Android/.test(navigator.userAgent)) {
+                    deviceInfo = 'Android';
+                }
+                
+                document.getElementById('deviceInfo').textContent = deviceInfo;
+                
+                // iPadの場合は追加の最適化
+                if (this.isIOS) {
+                    document.body.style.webkitTextSizeAdjust = '100%';
+                }
+            }
             margin: 0;
             padding: 0;
             overflow: hidden;
-            font-family: Arial, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
         }
         
         #arjsDebugUIContainer {
@@ -30,7 +74,10 @@
             padding: 15px;
             border-radius: 10px;
             z-index: 1000;
-            max-width: 300px;
+            max-width: 320px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         .control-panel h3 {
@@ -52,20 +99,25 @@
         
         .control-row input, .control-row select, .control-row button {
             flex: 1;
-            padding: 5px;
+            padding: 8px;
             border: none;
-            border-radius: 3px;
+            border-radius: 5px;
+            font-size: 14px;
+            min-height: 34px;
         }
         
         .control-row button {
             background: #4CAF50;
             color: white;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 14px;
+            -webkit-appearance: none;
+            appearance: none;
         }
         
-        .control-row button:hover {
+        .control-row button:active {
             background: #45a049;
+            transform: scale(0.98);
         }
         
         .status {
@@ -117,6 +169,47 @@
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
         }
+        
+        /* iPad専用スタイル */
+        @media screen and (min-width: 768px) and (max-width: 1024px) {
+            .control-panel {
+                max-width: 350px;
+                font-size: 16px;
+            }
+            
+            .control-row {
+                margin-bottom: 15px;
+            }
+            
+            .control-row input, .control-row select, .control-row button {
+                min-height: 40px;
+                font-size: 16px;
+            }
+        }
+        
+        /* コントロールパネル折りたたみ機能 */
+        .control-panel.collapsed {
+            transform: translateX(-85%);
+            transition: transform 0.3s ease;
+        }
+        
+        .control-panel.collapsed:hover {
+            transform: translateX(0);
+        }
+        
+        .collapse-btn {
+            position: absolute;
+            right: -30px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border: none;
+            padding: 10px 8px;
+            border-radius: 0 5px 5px 0;
+            cursor: pointer;
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
@@ -126,7 +219,8 @@
         <div style="font-size: 14px; margin-top: 10px;">カメラへのアクセスを許可してください</div>
     </div>
 
-    <div class="control-panel">
+    <div class="control-panel" id="controlPanel">
+        <button class="collapse-btn" id="collapseBtn">◀</button>
         <h3>🏞️ 土地境界AR</h3>
         
         <div class="control-row">
@@ -156,11 +250,16 @@
         </div>
         
         <div class="control-row">
+            <button id="requestFullscreen">フルスクリーン</button>
+            <button id="togglePanel">パネル非表示</button>
+        </div>
+        <div class="control-row">
             <button id="toggleCoords">座標表示切替</button>
             <button id="saveConfig">設定保存</button>
         </div>
         
         <div class="status">
+            <div>デバイス: <span id="deviceInfo">検出中</span></div>
             <div>ステータス: <span id="status">初期化中</span></div>
             <div>境界数: <span id="boundaryCount">0</span></div>
             <div>GPS: <span id="gpsStatus">取得中</span></div>
@@ -182,7 +281,10 @@
                 this.currentLocation = { lat: 0, lng: 0, alt: 0 };
                 this.isInitialized = false;
                 this.coordinatesVisible = false;
+                this.isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                this.devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2);
                 
+                this.detectDevice();
                 this.init();
             }
             
@@ -204,18 +306,24 @@
                 // Three.jsシーンの設定
                 this.scene = new THREE.Scene();
                 this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-                this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                
+                // iOSでのレンダラー最適化
+                const rendererOptions = { 
+                    antialias: !this.isIOS, // iOSではアンチエイリアシングを無効化してパフォーマンス向上
+                    alpha: true,
+                    powerPreference: 'high-performance'
+                };
+                
+                this.renderer = new THREE.WebGLRenderer(rendererOptions);
+                this.renderer.setPixelRatio(this.devicePixelRatio);
                 this.renderer.setSize(window.innerWidth, window.innerHeight);
-                this.renderer.xr.enabled = true;
+                this.renderer.shadowMap.enabled = false; // 影を無効化してパフォーマンス向上
+                
                 document.body.appendChild(this.renderer.domElement);
                 
-                // ライティングの設定
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                // ライティングの設定（軽量化）
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
                 this.scene.add(ambientLight);
-                
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
-                directionalLight.position.set(1, 1, 1);
-                this.scene.add(directionalLight);
                 
                 // レンダリングループ
                 this.animate();
@@ -260,6 +368,9 @@
                 const clearBoundariesBtn = document.getElementById('clearBoundaries');
                 const toggleCoordsBtn = document.getElementById('toggleCoords');
                 const saveConfigBtn = document.getElementById('saveConfig');
+                const requestFullscreenBtn = document.getElementById('requestFullscreen');
+                const togglePanelBtn = document.getElementById('togglePanel');
+                const collapseBtn = document.getElementById('collapseBtn');
                 
                 boundaryColorSelect.addEventListener('change', () => this.updateBoundaryAppearance());
                 lineWidthSlider.addEventListener('input', () => this.updateBoundaryAppearance());
@@ -268,12 +379,30 @@
                 clearBoundariesBtn.addEventListener('click', () => this.clearAllBoundaries());
                 toggleCoordsBtn.addEventListener('click', () => this.toggleCoordinatesDisplay());
                 saveConfigBtn.addEventListener('click', () => this.saveConfiguration());
+                requestFullscreenBtn.addEventListener('click', () => this.requestFullscreen());
+                togglePanelBtn.addEventListener('click', () => this.toggleControlPanel());
+                collapseBtn.addEventListener('click', () => this.toggleControlPanel());
+                
+                // タッチイベントの最適化
+                if (this.isIOS) {
+                    document.addEventListener('touchstart', () => {}, { passive: true });
+                    document.addEventListener('touchmove', () => {}, { passive: true });
+                }
                 
                 // ウィンドウリサイズ対応
                 window.addEventListener('resize', () => {
                     this.camera.aspect = window.innerWidth / window.innerHeight;
                     this.camera.updateProjectionMatrix();
                     this.renderer.setSize(window.innerWidth, window.innerHeight);
+                });
+                
+                // 画面の向き変更対応
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => {
+                        this.camera.aspect = window.innerWidth / window.innerHeight;
+                        this.camera.updateProjectionMatrix();
+                        this.renderer.setSize(window.innerWidth, window.innerHeight);
+                    }, 100);
                 });
             }
             
