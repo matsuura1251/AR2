@@ -1,820 +1,281 @@
 <!DOCTYPE html>
-<html lang="ja">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR土地境界表示システム</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>土地境界 AR表示</title>
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- A-Frame: WebXR framework -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- AR.js for A-Frame: Location-based AR -->
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Hiragino Kaku Gothic ProN', sans-serif;
-            background: #000;
-            overflow: hidden;
-            height: 100vh;
-        }
-
-        .ar-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            background: linear-gradient(45deg, #1a1a2e, #16213e, #0f3460);
-        }
-
-        #arScene {
-            width: 100%;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-        }
-
-        .video-container {
-            position: absolute;
+        /* Ensure UI is on top and responsive */
+        #ui-container {
+            position: fixed;
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
-            z-index: 1;
-        }
-
-        #cameraVideo {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1); /* ミラー効果 */
-        }
-
-        .ar-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            z-index: 2;
-        }
-
-        .ui-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
             z-index: 10;
-        }
-
-        .header {
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(20px);
-            padding: 15px 20px;
-            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.3);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            pointer-events: auto;
-        }
-
-        .header h1 {
-            color: #ffffff;
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 10px;
-            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-        }
-
-        .controls {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-
-        .btn {
-            padding: 10px 16px;
-            border: none;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            backdrop-filter: blur(10px);
-            pointer-events: auto;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-        }
-
-        .btn-ar {
-            background: linear-gradient(45deg, #00ff88, #00cc6a);
-            color: #000;
-            box-shadow: 0 4px 20px rgba(0, 255, 136, 0.4);
-        }
-
-        .btn-ar:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 25px rgba(0, 255, 136, 0.5);
-        }
-
-        .btn-primary {
-            background: linear-gradient(45deg, #667eea, #764ba2);
+            background-color: rgba(0, 0, 0, 0.7);
             color: white;
-            box-shadow: 0 4px 20px rgba(102, 126, 234, 0.4);
+            padding: 1rem;
+            max-height: 50vh;
+            overflow-y: auto;
         }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 25px rgba(102, 126, 234, 0.5);
-        }
-
-        .btn-secondary {
-            background: rgba(255, 255, 255, 0.15);
+        .coord-input {
+            background-color: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.4);
             color: white;
-            border: 1px solid rgba(255, 255, 255, 0.2);
         }
-
-        .btn-secondary:hover {
-            background: rgba(255, 255, 255, 0.25);
-            transform: translateY(-1px);
+        .coord-input::placeholder {
+            color: rgba(255, 255, 255, 0.6);
         }
-
-        .btn-danger {
-            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
-            color: white;
-            box-shadow: 0 4px 20px rgba(255, 107, 107, 0.4);
-        }
-
-        .ar-info-panel {
-            position: absolute;
-            top: 120px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(20px);
-            padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.4);
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            min-width: 220px;
-            pointer-events: auto;
-        }
-
-        .ar-info-panel h3 {
-            color: #00ff88;
-            margin-bottom: 12px;
-            font-size: 18px;
-            text-shadow: 0 2px 10px rgba(0, 255, 136, 0.3);
-        }
-
-        .info-item {
-            margin-bottom: 10px;
-            font-size: 14px;
-            color: #ffffff;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-        }
-
-        .info-value {
-            color: #00ff88;
-            font-weight: 600;
-        }
-
-        .ar-crosshair {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 40px;
-            height: 40px;
-            pointer-events: none;
-            z-index: 5;
-        }
-
-        .crosshair-line {
-            position: absolute;
-            background: #00ff88;
-            box-shadow: 0 0 10px rgba(0, 255, 136, 0.6);
-        }
-
-        .crosshair-h {
-            width: 40px;
-            height: 2px;
-            top: 19px;
-            left: 0;
-        }
-
-        .crosshair-v {
-            width: 2px;
-            height: 40px;
-            top: 0;
-            left: 19px;
-        }
-
-        .ar-status {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            right: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(20px);
-            padding: 15px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            pointer-events: auto;
-        }
-
-        .status-text {
-            color: #ffffff;
-            font-size: 14px;
-            text-align: center;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-        }
-
-        .ar-boundary-point {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            background: radial-gradient(circle, #00ff88, #00cc6a);
-            border: 3px solid rgba(255, 255, 255, 0.8);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.8);
-            animation: pulse 2s infinite;
-            pointer-events: auto;
-            cursor: pointer;
-            z-index: 6;
-        }
-
-        .ar-boundary-point::after {
-            content: '';
-            position: absolute;
-            top: -10px;
-            left: -10px;
-            right: -10px;
-            bottom: -10px;
-            border: 2px solid rgba(0, 255, 136, 0.4);
-            border-radius: 50%;
-            animation: ripple 2s infinite;
-        }
-
-        .ar-boundary-line {
-            position: absolute;
-            height: 4px;
-            background: linear-gradient(90deg, #00ff88, #00cc6a);
-            box-shadow: 0 0 15px rgba(0, 255, 136, 0.6);
-            transform-origin: left center;
-            pointer-events: none;
-            z-index: 4;
-        }
-
-        .ar-boundary-area {
-            position: absolute;
-            background: rgba(0, 255, 136, 0.1);
-            border: 2px dashed rgba(0, 255, 136, 0.6);
-            pointer-events: none;
-            z-index: 3;
-        }
-
-        .point-label {
-            position: absolute;
-            background: rgba(0, 0, 0, 0.8);
-            color: #00ff88;
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 600;
-            transform: translate(-50%, -150%);
-            pointer-events: none;
-            text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-            border: 1px solid rgba(0, 255, 136, 0.3);
-        }
-
-        .gps-info {
-            position: absolute;
-            top: 120px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            backdrop-filter: blur(20px);
-            padding: 15px;
-            border-radius: 12px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            pointer-events: auto;
-            min-width: 200px;
-        }
-
-        .gps-info h4 {
-            color: #67b7ff;
-            margin-bottom: 8px;
-            font-size: 14px;
-        }
-
-        .gps-data {
-            font-size: 12px;
-            color: #ffffff;
-            margin-bottom: 4px;
-        }
-
-        @keyframes pulse {
-            0%, 100% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.2); }
-        }
-
-        @keyframes ripple {
-            0% { opacity: 1; transform: scale(1); }
-            100% { opacity: 0; transform: scale(2); }
-        }
-
-        .permission-modal {
+        #loader {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0, 0, 0, 0.9);
+            background-color: rgba(0, 0, 0, 0.9);
+            color: white;
             display: flex;
-            align-items: center;
             justify-content: center;
-            z-index: 1000;
-        }
-
-        .modal-content {
-            background: linear-gradient(135deg, #1a1a2e, #16213e);
-            padding: 30px;
-            border-radius: 20px;
+            align-items: center;
+            z-index: 9999;
+            font-size: 1.2rem;
             text-align: center;
-            max-width: 400px;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .modal-content h2 {
-            color: #00ff88;
-            margin-bottom: 20px;
-            font-size: 24px;
-        }
-
-        .modal-content p {
-            color: #ffffff;
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-
-        @media (max-width: 768px) {
-            .controls {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            
-            .btn {
-                width: 100%;
-                margin-bottom: 5px;
-            }
-            
-            .ar-info-panel, .gps-info {
-                position: relative;
-                margin: 10px;
-                width: calc(100% - 20px);
-            }
         }
     </style>
 </head>
-<body>
-    <div class="ar-container">
-        <!-- カメラ映像 -->
-        <div class="video-container">
-            <video id="cameraVideo" autoplay playsinline muted></video>
-        </div>
 
-        <!-- AR重ね合わせレイヤー -->
-        <canvas class="ar-overlay" id="arCanvas"></canvas>
+<body style="margin: 0; overflow: hidden;">
 
-        <!-- 3D AR シーン -->
-        <div id="arScene"></div>
-
-        <!-- クロスヘア -->
-        <div class="ar-crosshair">
-            <div class="crosshair-line crosshair-h"></div>
-            <div class="crosshair-line crosshair-v"></div>
-        </div>
-
-        <!-- UI コンテナ -->
-        <div class="ui-container">
-            <div class="header">
-                <h1>🌐 AR土地境界表示システム</h1>
-                <div class="controls">
-                    <button class="btn btn-ar" onclick="startAR()" id="arBtn">ARスタート</button>
-                    <button class="btn btn-primary" onclick="addBoundaryPoint()" id="addPointBtn">境界点追加</button>
-                    <button class="btn btn-secondary" onclick="calibrateAR()">AR校正</button>
-                    <button class="btn btn-secondary" onclick="saveBoundary()">保存</button>
-                    <button class="btn btn-secondary" onclick="loadBoundary()">読込</button>
-                    <button class="btn btn-danger" onclick="clearBoundary()">クリア</button>
-                </div>
-            </div>
-
-            <div class="ar-info-panel">
-                <h3>📍 AR境界情報</h3>
-                <div class="info-item">境界点数: <span class="info-value" id="pointCount">0</span></div>
-                <div class="info-item">面積: <span class="info-value" id="area">0</span> m²</div>
-                <div class="info-item">周囲長: <span class="info-value" id="perimeter">0</span> m</div>
-                <div class="info-item">AR状態: <span class="info-value" id="arStatus">停止中</span></div>
-                <div class="info-item">精度: <span class="info-value" id="accuracy">-</span></div>
-            </div>
-
-            <div class="gps-info">
-                <h4>🛰️ 位置情報</h4>
-                <div class="gps-data">緯度: <span id="latitude">取得中...</span></div>
-                <div class="gps-data">経度: <span id="longitude">取得中...</span></div>
-                <div class="gps-data">方角: <span id="heading">取得中...</span>°</div>
-                <div class="gps-data">高度: <span id="altitude">取得中...</span>m</div>
-            </div>
-
-            <div class="ar-status">
-                <div class="status-text" id="statusText">ARを開始してください</div>
-            </div>
+    <!-- Loading screen for GPS initialization -->
+    <div id="loader">
+        <div class="animate-pulse">
+            <p>GPS信号を待っています...</p>
+            <p class="text-sm mt-2">しばらくお待ちください</p>
         </div>
     </div>
 
-    <!-- 権限確認モーダル -->
-    <div class="permission-modal" id="permissionModal">
-        <div class="modal-content">
-            <h2>📱 AR機能を使用します</h2>
-            <p>この機能では以下の権限が必要です：</p>
-            <ul style="text-align: left; color: #ffffff; margin: 20px 0;">
-                <li>カメラアクセス</li>
-                <li>位置情報アクセス</li>
-                <li>デバイスの向き検出</li>
-            </ul>
-            <button class="btn btn-ar" onclick="requestPermissions()">権限を許可してARを開始</button>
+    <!-- UI for inputting coordinates -->
+    <div id="ui-container" class="hidden">
+        <h1 class="text-xl font-bold mb-2">土地境界 AR表示</h1>
+        <div id="coordinates-list" class="space-y-2 mb-3">
+            <!-- Coordinate input rows will be added here by JS -->
         </div>
+        <div class="flex flex-wrap gap-2">
+            <button id="add-point-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                地点を追加
+            </button>
+            <button id="update-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                境界を表示
+            </button>
+             <button id="clear-btn" class="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                クリア
+            </button>
+        </div>
+        <p class="text-xs mt-3 text-gray-300">
+            注意: スマートフォンのGPS精度には数メートルの誤差があります。これは業務用ではなくデモンストレーションです。
+        </p>
     </div>
 
-    <input type="file" id="fileInput" accept=".json" style="display: none;" onchange="loadFromFile(event)">
+    <!-- A-Frame Scene for AR -->
+    <a-scene
+        vr-mode-ui="enabled: false"
+        arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false;"
+        renderer="logarithmicDepthBuffer: true;"
+    >
+        <!-- The camera entity, which moves with the user -->
+        <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <!-- Container for all boundary-related entities -->
+        <a-entity id="boundary-container"></a-entity>
+    </a-scene>
+
     <script>
-        let scene, camera, renderer, arBoundaryPoints = [];
-        let isARActive = false;
-        let currentPosition = null;
-        let deviceOrientation = null;
-        let cameraStream = null;
-        let arCanvas, arContext;
-        let boundaryObjects = [];
+        // Sample boundary data (latitude, longitude)
+        // Example: A square area near Tokyo Station
+        const initialCoordinates = [
+            { lat: 35.6815, lon: 139.7660 },
+            { lat: 35.6820, lon: 139.7660 },
+            { lat: 35.6820, lon: 139.7665 },
+            { lat: 35.6815, lon: 139.7665 },
+        ];
 
-        // AR システム初期化
-        async function initARSystem() {
-            arCanvas = document.getElementById('arCanvas');
-            arContext = arCanvas.getContext('2d');
-            
-            // Canvas サイズ設定
-            arCanvas.width = window.innerWidth;
-            arCanvas.height = window.innerHeight;
-            
-            // Three.js セットアップ
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-            renderer = new THREE.WebGLRenderer({ alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.setClearColor(0x000000, 0);
-            
-            document.getElementById('arScene').appendChild(renderer.domElement);
-            
-            updateStatus('AR システムを初期化しました');
-        }
+        window.onload = () => {
+            const scene = document.querySelector('a-scene');
+            const loader = document.getElementById('loader');
+            const uiContainer = document.getElementById('ui-container');
+            const coordinatesList = document.getElementById('coordinates-list');
+            const addPointBtn = document.getElementById('add-point-btn');
+            const updateBtn = document.getElementById('update-btn');
+            const clearBtn = document.getElementById('clear-btn');
+            const boundaryContainer = document.getElementById('boundary-container');
 
-        // AR開始
-        async function startAR() {
-            if (isARActive) {
-                stopAR();
-                return;
-            }
+            let gpsReady = false;
 
-            try {
-                updateStatus('AR を開始しています...');
-                
-                // カメラアクセス
-                cameraStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        facingMode: 'environment',
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
-                    }
+            // --- UI Functions ---
+
+            // Function to add a new coordinate input row to the UI
+            const addCoordinateRow = (lat = '', lon = '') => {
+                const index = coordinatesList.children.length;
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-2';
+                row.innerHTML = `
+                    <span class="font-mono text-sm w-6">${index + 1}.</span>
+                    <input type="number" step="any" placeholder="緯度" value="${lat}" class="coord-input w-full p-1.5 rounded-md text-sm">
+                    <input type="number" step="any" placeholder="経度" value="${lon}" class="coord-input w-full p-1.5 rounded-md text-sm">
+                    <button class="remove-point-btn text-red-400 hover:text-red-200 text-2xl font-bold">&times;</button>
+                `;
+                coordinatesList.appendChild(row);
+
+                row.querySelector('.remove-point-btn').addEventListener('click', () => {
+                    row.remove();
+                    updateRowNumbers();
                 });
-                
-                const video = document.getElementById('cameraVideo');
-                video.srcObject = cameraStream;
-                
-                // 位置情報とデバイス方向の取得開始
-                startLocationTracking();
-                startOrientationTracking();
-                
-                isARActive = true;
-                document.getElementById('arBtn').textContent = 'AR停止';
-                document.getElementById('arStatus').textContent = 'アクティブ';
-                updateStatus('AR が開始されました。十字カーソルを土地の境界点に向けて「境界点追加」をタップしてください');
-                
-                // AR レンダリングループ開始
-                animate();
-                
-            } catch (error) {
-                console.error('AR 開始エラー:', error);
-                updateStatus('AR の開始に失敗しました: ' + error.message);
-            }
-        }
-
-        // AR停止
-        function stopAR() {
-            if (cameraStream) {
-                cameraStream.getTracks().forEach(track => track.stop());
-                cameraStream = null;
-            }
+            };
             
-            isARActive = false;
-            document.getElementById('arBtn').textContent = 'ARスタート';
-            document.getElementById('arStatus').textContent = '停止中';
-            updateStatus('AR を停止しました');
-        }
-
-        // 位置情報追跡開始
-        function startLocationTracking() {
-            if ('geolocation' in navigator) {
-                navigator.geolocation.watchPosition(
-                    (position) => {
-                        currentPosition = position;
-                        updateLocationDisplay(position);
-                    },
-                    (error) => {
-                        console.error('位置情報エラー:', error);
-                        updateStatus('位置情報の取得に失敗しました');
-                    },
-                    {
-                        enableHighAccuracy: true,
-                        maximumAge: 1000,
-                        timeout: 5000
-                    }
-                );
-            }
-        }
-
-        // デバイス方向追跡開始
-        function startOrientationTracking() {
-            if ('DeviceOrientationEvent' in window) {
-                window.addEventListener('deviceorientation', (event) => {
-                    deviceOrientation = event;
-                    updateOrientationDisplay(event);
+            // Function to re-number rows after one is deleted
+            const updateRowNumbers = () => {
+                Array.from(coordinatesList.children).forEach((row, index) => {
+                    row.querySelector('span').textContent = `${index + 1}.`;
                 });
-            }
-        }
-
-        // 位置情報表示更新
-        function updateLocationDisplay(position) {
-            document.getElementById('latitude').textContent = position.coords.latitude.toFixed(6);
-            document.getElementById('longitude').textContent = position.coords.longitude.toFixed(6);
-            document.getElementById('altitude').textContent = position.coords.altitude ? position.coords.altitude.toFixed(1) : '不明';
-            document.getElementById('accuracy').textContent = position.coords.accuracy.toFixed(1) + 'm';
-        }
-
-        // デバイス方向表示更新
-        function updateOrientationDisplay(event) {
-            const heading = event.alpha || 0;
-            document.getElementById('heading').textContent = heading.toFixed(1);
-        }
-
-        // 境界点追加
-        function addBoundaryPoint() {
-            if (!isARActive) {
-                updateStatus('まずARを開始してください');
-                return;
-            }
-
-            if (!currentPosition) {
-                updateStatus('位置情報を取得中です。しばらくお待ちください');
-                return;
-            }
-
-            // 画面中央（クロスヘア位置）に境界点を追加
-            const screenCenter = {
-                x: window.innerWidth / 2,
-                y: window.innerHeight / 2
             };
 
-            const boundaryPoint = {
-                id: Date.now(),
-                screenPosition: screenCenter,
-                gpsPosition: {
-                    lat: currentPosition.coords.latitude,
-                    lng: currentPosition.coords.longitude,
-                    alt: currentPosition.coords.altitude || 0
-                },
-                deviceOrientation: deviceOrientation ? {
-                    alpha: deviceOrientation.alpha,
-                    beta: deviceOrientation.beta,
-                    gamma: deviceOrientation.gamma
-                } : null,
-                timestamp: new Date().toISOString()
+            // --- AR Rendering Functions ---
+
+            // Main function to render boundaries in AR
+            const renderBoundaries = () => {
+                if (!gpsReady) {
+                    alert('GPSの準備ができていません。');
+                    return;
+                }
+                
+                // Clear previous boundary entities
+                boundaryContainer.innerHTML = '';
+
+                const coords = [];
+                const rows = coordinatesList.querySelectorAll('div');
+                rows.forEach(row => {
+                    const inputs = row.querySelectorAll('input');
+                    const lat = parseFloat(inputs[0].value);
+                    const lon = parseFloat(inputs[1].value);
+                    if (!isNaN(lat) && !isNaN(lon)) {
+                        coords.push({ lat, lon });
+                    }
+                });
+
+                if (coords.length < 2) {
+                    if(coords.length === 1) { // Render a single point if only one is provided
+                         renderPoint(coords[0]);
+                    }
+                    return;
+                }
+
+                // Render points and lines
+                for (let i = 0; i < coords.length; i++) {
+                    const currentPoint = coords[i];
+                    const nextPoint = coords[(i + 1) % coords.length]; // Loop back to the start
+
+                    renderPoint(currentPoint);
+                    renderLine(currentPoint, nextPoint);
+                }
+            };
+            
+            // Function to render a single point (sphere)
+            const renderPoint = (coord) => {
+                const pointEntity = document.createElement('a-sphere');
+                pointEntity.setAttribute('gps-new-entity-place', {
+                    latitude: coord.lat,
+                    longitude: coord.lon
+                });
+                pointEntity.setAttribute('radius', '1.5'); // 1.5 meters radius
+                pointEntity.setAttribute('color', '#FFD700'); // Gold color
+                pointEntity.setAttribute('material', 'opacity: 0.8; emissive: #FFD700; emissiveIntensity: 0.5');
+                boundaryContainer.appendChild(pointEntity);
             };
 
-            arBoundaryPoints.push(boundaryPoint);
-            createARBoundaryPoint(boundaryPoint, arBoundaryPoints.length);
-            updateARDisplay();
-            updateStatus(`境界点${arBoundaryPoints.length}を追加しました`);
-        }
+            // Function to render a line between two points
+            const renderLine = (startCoord, endCoord) => {
+                const lineEntity = document.createElement('a-entity');
+                lineEntity.setAttribute('gps-new-entity-place', {
+                    latitude: startCoord.lat,
+                    longitude: startCoord.lon
+                });
 
-        // AR境界点の3D表示作成
-        function createARBoundaryPoint(point, index) {
-            // 3D境界点オブジェクト作成
-            const geometry = new THREE.SphereGeometry(0.1, 16, 16);
-            const material = new THREE.MeshBasicMaterial({ 
-                color: 0x00ff88,
-                transparent: true,
-                opacity: 0.8
+                // Calculate distance and bearing to find the end point in local coordinates
+                const { x, z } = calculateOffset(startCoord, endCoord);
+                
+                lineEntity.setAttribute('line', {
+                    start: '0 1 0', // Start slightly above ground
+                    end: `${x} 1 ${z}`,
+                    color: '#FF6347', // Tomato color
+                    opacity: 0.8
+                });
+                boundaryContainer.appendChild(lineEntity);
+            };
+
+            // --- Geolocation and Calculation ---
+
+            // Haversine formula to calculate distance and bearing between two GPS points
+            const calculateOffset = (start, end) => {
+                const R = 6371e3; // Earth's radius in meters
+                const lat1 = start.lat * Math.PI / 180;
+                const lat2 = end.lat * Math.PI / 180;
+                const lon1 = start.lon * Math.PI / 180;
+                const lon2 = end.lon * Math.PI / 180;
+
+                const deltaLat = lat2 - lat1;
+                const deltaLon = lon2 - lon1;
+
+                // Distance calculation
+                const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
+                          Math.cos(lat1) * Math.cos(lat2) *
+                          Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+                const distance = R * c;
+
+                // Bearing calculation
+                const y = Math.sin(deltaLon) * Math.cos(lat2);
+                const x = Math.cos(lat1) * Math.sin(lat2) -
+                          Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+                const bearing = Math.atan2(y, x);
+
+                // Convert distance and bearing to local x, z coordinates (A-Frame: +Z is south, +X is east)
+                const localX = distance * Math.sin(bearing);
+                const localZ = -distance * Math.cos(bearing);
+
+                return { x: localX, z: localZ };
+            };
+
+            // --- Event Listeners and Initialization ---
+
+            // Wait for the GPS to be ready
+            scene.addEventListener('gps-camera-update-position', e => {
+                if (!gpsReady) {
+                    gpsReady = true;
+                    loader.style.display = 'none';
+                    uiContainer.classList.remove('hidden');
+                    console.log('GPS Ready. Position:', e.detail.position);
+                    // Automatically render the initial boundaries
+                    renderBoundaries();
+                }
             });
-            const sphere = new THREE.Mesh(geometry, material);
-            
-            // GPS座標から3D座標に変換（簡易的な変換）
-            const worldPos = gpsToWorldPosition(point.gpsPosition);
-            sphere.position.set(worldPos.x, worldPos.y, worldPos.z);
-            sphere.userData = { pointId: point.id, index: index };
-            
-            scene.add(sphere);
-            boundaryObjects.push(sphere);
 
-            // 2D オーバーレイ表示も作成
-            createARPointOverlay(point, index);
-        }
+            addPointBtn.addEventListener('click', () => addCoordinateRow());
+            updateBtn.addEventListener('click', renderBoundaries);
+            clearBtn.addEventListener('click', () => {
+                 boundaryContainer.innerHTML = '';
+                 coordinatesList.innerHTML = '';
+            });
 
-        // AR境界点の2Dオーバーレイ作成
-        function createARPointOverlay(point, index) {
-            const pointElement = document.createElement('div');
-            pointElement.className = 'ar-boundary-point';
-            pointElement.style.left = point.screenPosition.x + 'px';
-            pointElement.style.top = point.screenPosition.y + 'px';
-            pointElement.id = `ar-point-${point.id}`;
-
-            const labelElement = document.createElement('div');
-            labelElement.className = 'point-label';
-            labelElement.textContent = `P${index}`;
-            pointElement.appendChild(labelElement);
-
-            document.querySelector('.ar-container').appendChild(pointElement);
-        }
-
-        // GPS座標から3D世界座標に変換（簡易変換）
-        function gpsToWorldPosition(gpsPos) {
-            if (!currentPosition) return { x: 0, y: 0, z: 0 };
-            
-            const lat1 = currentPosition.coords.latitude;
-            const lng1 = currentPosition.coords.longitude;
-            const lat2 = gpsPos.lat;
-            const lng2 = gpsPos.lng;
-            
-            // 簡易的なメルカトル図法変換
-            const x = (lng2 - lng1) * 111320 * Math.cos(lat1 * Math.PI / 180);
-            const z = (lat2 - lat1) * 111320;
-            const y = gpsPos.alt - (currentPosition.coords.altitude || 0);
-            
-            return { x: x, y: y, z: -z }; // Z軸反転
-        }
-
-        // AR表示更新
-        function updateARDisplay() {
-            // 境界線描画
-            drawARBoundaryLines();
-            
-            // 情報パネル更新
-            document.getElementById('pointCount').textContent = arBoundaryPoints.length;
-            
-            if (arBoundaryPoints.length >= 3) {
-                const area = calculateARArea();
-                const perimeter = calculateARPerimeter();
-                document.getElementById('area').textContent = area.toFixed(2);
-                document.getElementById('perimeter').textContent = perimeter.toFixed(2);
-            } else {
-                document.getElementById('area').textContent = '0';
-                document.getElementById('perimeter').textContent = '0';
-            }
-        }
-
-        // AR境界線描画
-        function drawARBoundaryLines() {
-            // 既存の境界線を削除
-            const existingLines = document.querySelectorAll('.ar-boundary-line');
-            existingLines.forEach(line => line.remove());
-
-            if (arBoundaryPoints.length < 2) return;
-
-            // 境界線を描画
-            for (let i = 0; i < arBoundaryPoints.length; i++) {
-                const startPoint = arBoundaryPoints[i];
-                const endPoint = arBoundaryPoints[(i + 1) % arBoundaryPoints.length];
-                
-                createARLine(startPoint.screenPosition, endPoint.screenPosition);
-            }
-        }
-
-        // AR線分作成
-        function createARLine(start, end) {
-            const line = document.createElement('div');
-            line.className = 'ar-boundary-line';
-            
-            const length = Math.sqrt(
-                Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2)
-            );
-            const angle = Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI;
-            
-            line.style.left = start.x + 'px';
-            line.style.top = start.y + 'px';
-            line.style.width = length + 'px';
-            line.style.transform = `rotate(${angle}deg)`;
-            
-            document.querySelector('.ar-container').appendChild(line);
-        }
-
-        // AR面積計算
-        function calculateARArea() {
-            if (arBoundaryPoints.length < 3) return 0;
-            
-            let area = 0;
-            const n = arBoundaryPoints.length;
-            
-            for (let i = 0; i < n; i++) {
-                const j = (i + 1) % n;
-                const pos1 = gpsToWorldPosition(arBoundaryPoints[i].gpsPosition);
-                const pos2 = gpsToWorldPosition(arBoundaryPoints[j].gpsPosition);
-                area += pos1.x * pos2.z - pos2.x * pos1.z;
-            }
-            
-            return Math.abs(area) / 2;
-        }
-
-        // AR周囲長計算
-        function calculateARPerimeter() {
-            if (arBoundaryPoints.length < 2) return 0;
-            
-            let perimeter = 0;
-            const n = arBoundaryPoints.length;
-            
-            for (let i = 0; i < n; i++) {
-                const j = (i + 1) % n;
-                const pos1 = gpsToWorldPosition(arBoundaryPoints[i].gpsPosition);
-                const pos2 = gpsToWorldPosition(arBoundaryPoints[j].gpsPosition);
-                const dx = pos2.x - pos1.x;
-                const dz = pos2.z - pos1.z;
-                perimeter += Math.sqrt(dx * dx + dz * dz);
-            }
-            
-            return perimeter;
-        }
-
-        // AR校正
-        function calibrateAR() {
-            if (!isARActive) {
-                updateStatus('ARが開始されていません');
-                return;
-            }
-            
-            // 簡易的な校正処理
-            updateStatus('AR校正を実行しました');
-        }
-
-        // アニメーションループ
-        function animate() {
-            if (!isARActive) return;
-            
-            requestAnimationFrame(animate);
-            
-            // カメラの向きを更新
-            if (deviceOrientation) {
-                camera.rotation.x = (deviceOrientation.beta || 0) * Math.PI / 180;
-                camera.rotation.y = (deviceOrientation.alpha || 0) * Math.PI / 180;
-                camera.rotation.z = (deviceOrientation.gamma || 0) * Math.PI / 180;
-            }
-            
-            renderer.render(scene, camera);
-        }
-
-        // 境界データ保存
-        function saveBoundary() {
-            const data = {
-                arBoundaryPoints: arBoundaryPoints,
-                timestamp: new Date().toISOString(),
-                area: calculateARArea(),
-                perimeter: calculateARPerimeter(),
-                type: 'ar-boundary'
-            };
-            
-            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `AR土地境界_${new Date().toISOString().split('T')[0]}.json`;
-            a.click();
-            
-            URL.revokeObjectURL(url);
-            updateStatus('AR境界データを保存しました');
-        }
-
-        // 境界データ読込
-        function loadBoundary() {
-            document.getElementById('fileInput').click();
-        }
-
-        function loadFromFile(event)
+            // Initialize UI with sample data
+            initialCoordinates.forEach(coord => addCoordinateRow(coord.lat, coord.lon));
+        };
+    </script>
+</body>
+</html>
