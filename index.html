@@ -3,13 +3,15 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>土地境界 AR表示</title>
+    <title>土地境界 AR表示（KML読込＆座標系対応）</title>
     <!-- Tailwind CSS for styling -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- A-Frame: WebXR framework -->
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <!-- AR.js for A-Frame: Location-based AR -->
     <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    <!-- Proj4js for coordinate system conversion -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
 
     <style>
         /* Ensure UI is on top and responsive */
@@ -19,11 +21,12 @@
             left: 0;
             width: 100%;
             z-index: 10;
-            background-color: rgba(0, 0, 0, 0.7);
+            background-color: rgba(0, 0, 0, 0.75);
             color: white;
             padding: 1rem;
-            max-height: 50vh;
+            max-height: 60vh;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         .coord-input {
             background-color: rgba(255, 255, 255, 0.2);
@@ -48,12 +51,16 @@
             font-size: 1.2rem;
             text-align: center;
         }
+        #ui-container::-webkit-scrollbar { width: 8px; }
+        #ui-container::-webkit-scrollbar-track { background: rgba(255, 255, 255, 0.1); }
+        #ui-container::-webkit-scrollbar-thumb { background-color: rgba(0, 150, 255, 0.5); border-radius: 4px; }
+        /* Hide default file input */
+        #kml-input { display: none; }
     </style>
 </head>
 
 <body style="margin: 0; overflow: hidden;">
 
-    <!-- Loading screen for GPS initialization -->
     <div id="loader">
         <div class="animate-pulse">
             <p>GPS信号を待っています...</p>
@@ -61,9 +68,33 @@
         </div>
     </div>
 
-    <!-- UI for inputting coordinates -->
     <div id="ui-container" class="hidden">
-        <h1 class="text-xl font-bold mb-2">土地境界 AR表示</h1>
+        <div id="calibration-section" class="mb-4 p-3 bg-gray-900/50 rounded-lg">
+            <h2 class="text-lg font-semibold mb-2 text-cyan-300">位置補正 (平面直角座標系 第5系)</h2>
+            <p class="text-xs text-gray-300 mb-2">基準点に立ち、その地点の正確なXY座標を入力して補正してください。</p>
+            <div class="flex items-center gap-2 mb-2">
+                <input type="number" id="calib-x" step="any" placeholder="基準点のX座標(N)" class="coord-input w-full p-1.5 rounded-md text-sm">
+                <input type="number" id="calib-y" step="any" placeholder="基準点のY座標(E)" class="coord-input w-full p-1.5 rounded-md text-sm">
+            </div>
+            <div class="flex flex-wrap gap-2">
+                <button id="calibrate-btn" class="bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                    この場所で補正
+                </button>
+                <button id="reset-calib-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-3 rounded-lg text-sm">
+                    リセット
+                </button>
+            </div>
+            <div id="offset-info" class="text-xs mt-2 text-yellow-300"></div>
+        </div>
+
+        <div class="flex justify-between items-center border-t border-gray-600 pt-4 mb-2">
+            <h1 class="text-xl font-bold">境界点リスト (第5系)</h1>
+            <!-- KML Import Button -->
+            <label for="kml-input" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg text-sm cursor-pointer">
+                KMLを読込
+            </label>
+            <input type="file" id="kml-input" accept=".kml,application/vnd.google-earth.kml+xml">
+        </div>
         <div id="coordinates-list" class="space-y-2 mb-3">
             <!-- Coordinate input rows will be added here by JS -->
         </div>
@@ -78,33 +109,43 @@
                 クリア
             </button>
         </div>
-        <p class="text-xs mt-3 text-gray-300">
-            注意: スマートフォンのGPS精度には数メートルの誤差があります。これは業務用ではなくデモンストレーションです。
+        <p class="text-xs mt-3 text-gray-400">
+            注意: スマートフォンのGPS精度には数メートルの誤差があります。補正機能の利用を推奨します。
         </p>
     </div>
 
-    <!-- A-Frame Scene for AR -->
     <a-scene
         vr-mode-ui="enabled: false"
         arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false;"
         renderer="logarithmicDepthBuffer: true;"
     >
-        <!-- The camera entity, which moves with the user -->
         <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
-
-        <!-- Container for all boundary-related entities -->
         <a-entity id="boundary-container"></a-entity>
     </a-scene>
 
     <script>
-        // Sample boundary data (latitude, longitude)
-        // Example: A square area near Tokyo Station
-        const initialCoordinates = [
-            { lat: 35.6815, lon: 139.7660 },
-            { lat: 35.6820, lon: 139.7660 },
-            { lat: 35.6820, lon: 139.7665 },
-            { lat: 35.6815, lon: 139.7665 },
+        // Sample boundary data in JPRCS Zone 5 (Okayama, Hiroshima, etc.)
+        const initialJprcsCoordinates = [
+            { x: 279588, y: -16458 },
+            { x: 279638, y: -16458 },
+            { x: 279638, y: -16408 },
+            { x: 279588, y: -16408 },
         ];
+
+        // --- Coordinate Conversion Setup ---
+        const jprcs5 = '+proj=tmerc +lat_0=33 +lon_0=133.5 +k=0.9999 +x_0=0 +y_0=0 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+        const wgs84 = 'EPSG:4326';
+
+        const convertJprcsToLatLon = (x, y) => {
+            const [lon, lat] = proj4(jprcs5, wgs84, [y, x]);
+            return { lat, lon };
+        };
+        // NEW: Reverse conversion function
+        const convertLatLonToJprcs = (lat, lon) => {
+            const [y, x] = proj4(wgs84, jprcs5, [lon, lat]);
+            return { x, y };
+        };
+
 
         window.onload = () => {
             const scene = document.querySelector('a-scene');
@@ -115,20 +156,28 @@
             const updateBtn = document.getElementById('update-btn');
             const clearBtn = document.getElementById('clear-btn');
             const boundaryContainer = document.getElementById('boundary-container');
+            const kmlInput = document.getElementById('kml-input');
+            
+            const calibXInput = document.getElementById('calib-x');
+            const calibYInput = document.getElementById('calib-y');
+            const calibrateBtn = document.getElementById('calibrate-btn');
+            const resetCalibBtn = document.getElementById('reset-calib-btn');
+            const offsetInfo = document.getElementById('offset-info');
 
             let gpsReady = false;
+            let currentCameraPosition = null;
+            let latOffset = 0;
+            let lonOffset = 0;
 
             // --- UI Functions ---
-
-            // Function to add a new coordinate input row to the UI
-            const addCoordinateRow = (lat = '', lon = '') => {
+            const addCoordinateRow = (x = '', y = '') => {
                 const index = coordinatesList.children.length;
                 const row = document.createElement('div');
                 row.className = 'flex items-center gap-2';
                 row.innerHTML = `
                     <span class="font-mono text-sm w-6">${index + 1}.</span>
-                    <input type="number" step="any" placeholder="緯度" value="${lat}" class="coord-input w-full p-1.5 rounded-md text-sm">
-                    <input type="number" step="any" placeholder="経度" value="${lon}" class="coord-input w-full p-1.5 rounded-md text-sm">
+                    <input type="number" step="any" placeholder="X座標(N)" value="${x}" class="coord-input w-full p-1.5 rounded-md text-sm">
+                    <input type="number" step="any" placeholder="Y座標(E)" value="${y}" class="coord-input w-full p-1.5 rounded-md text-sm">
                     <button class="remove-point-btn text-red-400 hover:text-red-200 text-2xl font-bold">&times;</button>
                 `;
                 coordinatesList.appendChild(row);
@@ -139,7 +188,6 @@
                 });
             };
             
-            // Function to re-number rows after one is deleted
             const updateRowNumbers = () => {
                 Array.from(coordinatesList.children).forEach((row, index) => {
                     row.querySelector('span').textContent = `${index + 1}.`;
@@ -147,134 +195,171 @@
             };
 
             // --- AR Rendering Functions ---
-
-            // Main function to render boundaries in AR
             const renderBoundaries = () => {
-                if (!gpsReady) {
-                    alert('GPSの準備ができていません。');
-                    return;
-                }
+                if (!gpsReady) { return; }
                 
-                // Clear previous boundary entities
                 boundaryContainer.innerHTML = '';
 
-                const coords = [];
+                const jprcsCoords = [];
                 const rows = coordinatesList.querySelectorAll('div');
                 rows.forEach(row => {
                     const inputs = row.querySelectorAll('input');
-                    const lat = parseFloat(inputs[0].value);
-                    const lon = parseFloat(inputs[1].value);
-                    if (!isNaN(lat) && !isNaN(lon)) {
-                        coords.push({ lat, lon });
+                    const x = parseFloat(inputs[0].value);
+                    const y = parseFloat(inputs[1].value);
+                    if (!isNaN(x) && !isNaN(y)) {
+                        jprcsCoords.push({ x, y });
                     }
                 });
 
-                if (coords.length < 2) {
-                    if(coords.length === 1) { // Render a single point if only one is provided
-                         renderPoint(coords[0]);
-                    }
+                if (jprcsCoords.length < 2) {
+                    if(jprcsCoords.length === 1) { renderPoint(jprcsCoords[0]); }
                     return;
                 }
 
-                // Render points and lines
-                for (let i = 0; i < coords.length; i++) {
-                    const currentPoint = coords[i];
-                    const nextPoint = coords[(i + 1) % coords.length]; // Loop back to the start
-
+                for (let i = 0; i < jprcsCoords.length; i++) {
+                    const currentPoint = jprcsCoords[i];
+                    const nextPoint = jprcsCoords[(i + 1) % jprcsCoords.length];
                     renderPoint(currentPoint);
                     renderLine(currentPoint, nextPoint);
                 }
             };
             
-            // Function to render a single point (sphere)
-            const renderPoint = (coord) => {
+            const renderPoint = (jprcsCoord) => {
+                const { lat, lon } = convertJprcsToLatLon(jprcsCoord.x, jprcsCoord.y);
                 const pointEntity = document.createElement('a-sphere');
                 pointEntity.setAttribute('gps-new-entity-place', {
-                    latitude: coord.lat,
-                    longitude: coord.lon
+                    latitude: lat - latOffset,
+                    longitude: lon - lonOffset
                 });
-                pointEntity.setAttribute('radius', '1.5'); // 1.5 meters radius
-                pointEntity.setAttribute('color', '#FFD700'); // Gold color
+                pointEntity.setAttribute('radius', '1.5');
+                pointEntity.setAttribute('color', '#FFD700');
                 pointEntity.setAttribute('material', 'opacity: 0.8; emissive: #FFD700; emissiveIntensity: 0.5');
                 boundaryContainer.appendChild(pointEntity);
             };
 
-            // Function to render a line between two points
-            const renderLine = (startCoord, endCoord) => {
+            const renderLine = (startJprcs, endJprcs) => {
+                const startWgs = convertJprcsToLatLon(startJprcs.x, startJprcs.y);
+                const endWgs = convertJprcsToLatLon(endJprcs.x, endJprcs.y);
                 const lineEntity = document.createElement('a-entity');
                 lineEntity.setAttribute('gps-new-entity-place', {
-                    latitude: startCoord.lat,
-                    longitude: startCoord.lon
+                    latitude: startWgs.lat - latOffset,
+                    longitude: startWgs.lon - lonOffset
                 });
-
-                // Calculate distance and bearing to find the end point in local coordinates
-                const { x, z } = calculateOffset(startCoord, endCoord);
-                
-                lineEntity.setAttribute('line', {
-                    start: '0 1 0', // Start slightly above ground
-                    end: `${x} 1 ${z}`,
-                    color: '#FF6347', // Tomato color
-                    opacity: 0.8
-                });
+                const { x, z } = calculateOffset(startWgs, endWgs);
+                lineEntity.setAttribute('line', { start: '0 1 0', end: `${x} 1 ${z}`, color: '#FF6347', opacity: 0.8 });
                 boundaryContainer.appendChild(lineEntity);
             };
 
             // --- Geolocation and Calculation ---
-
-            // Haversine formula to calculate distance and bearing between two GPS points
             const calculateOffset = (start, end) => {
-                const R = 6371e3; // Earth's radius in meters
-                const lat1 = start.lat * Math.PI / 180;
-                const lat2 = end.lat * Math.PI / 180;
-                const lon1 = start.lon * Math.PI / 180;
-                const lon2 = end.lon * Math.PI / 180;
-
-                const deltaLat = lat2 - lat1;
-                const deltaLon = lon2 - lon1;
-
-                // Distance calculation
-                const a = Math.sin(deltaLat / 2) * Math.sin(deltaLat / 2) +
-                          Math.cos(lat1) * Math.cos(lat2) *
-                          Math.sin(deltaLon / 2) * Math.sin(deltaLon / 2);
+                const R = 6371e3;
+                const lat1 = start.lat * Math.PI / 180, lat2 = end.lat * Math.PI / 180;
+                const lon1 = start.lon * Math.PI / 180, lon2 = end.lon * Math.PI / 180;
+                const deltaLat = lat2 - lat1, deltaLon = lon2 - lon1;
+                const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLon / 2) ** 2;
                 const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
                 const distance = R * c;
-
-                // Bearing calculation
                 const y = Math.sin(deltaLon) * Math.cos(lat2);
-                const x = Math.cos(lat1) * Math.sin(lat2) -
-                          Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
-                const bearing = Math.atan2(y, x);
-
-                // Convert distance and bearing to local x, z coordinates (A-Frame: +Z is south, +X is east)
-                const localX = distance * Math.sin(bearing);
-                const localZ = -distance * Math.cos(bearing);
-
-                return { x: localX, z: localZ };
+                const x_bearing = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLon);
+                const bearing = Math.atan2(y, x_bearing);
+                return { x: distance * Math.sin(bearing), z: -distance * Math.cos(bearing) };
             };
 
-            // --- Event Listeners and Initialization ---
+            // --- KML Parsing Logic ---
+            const handleKmlFile = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
 
-            // Wait for the GPS to be ready
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const kmlText = e.target.result;
+                    const parser = new DOMParser();
+                    const kmlDoc = parser.parseFromString(kmlText, "application/xml");
+                    
+                    const coordinatesTag = kmlDoc.querySelector("coordinates");
+                    if (!coordinatesTag) {
+                        alert("KMLファイル内に<coordinates>タグが見つかりませんでした。");
+                        return;
+                    }
+
+                    const coordText = coordinatesTag.textContent.trim();
+                    const points = coordText.split(/\s+/);
+                    
+                    const newJprcsCoords = points.map(p => {
+                        const parts = p.split(',');
+                        if (parts.length >= 2) {
+                            const lon = parseFloat(parts[0]);
+                            const lat = parseFloat(parts[1]);
+                            if (!isNaN(lat) && !isNaN(lon)) {
+                                return convertLatLonToJprcs(lat, lon);
+                            }
+                        }
+                        return null;
+                    }).filter(Boolean); // Filter out any null values from failed parsing
+
+                    // The last point in a KML polygon is often the same as the first. Remove it.
+                    if (newJprcsCoords.length > 1 && 
+                        newJprcsCoords[0].x.toFixed(3) === newJprcsCoords[newJprcsCoords.length - 1].x.toFixed(3) &&
+                        newJprcsCoords[0].y.toFixed(3) === newJprcsCoords[newJprcsCoords.length - 1].y.toFixed(3)) {
+                        newJprcsCoords.pop();
+                    }
+
+                    if (newJprcsCoords.length > 0) {
+                        coordinatesList.innerHTML = ''; // Clear existing list
+                        newJprcsCoords.forEach(coord => addCoordinateRow(coord.x.toFixed(3), coord.y.toFixed(3)));
+                        renderBoundaries();
+                        alert(`${newJprcsCoords.length}点の座標をKMLから読み込みました。`);
+                    } else {
+                        alert("KMLファイルから有効な座標を読み込めませんでした。");
+                    }
+                };
+                reader.readAsText(file);
+                // Reset file input to allow loading the same file again
+                event.target.value = '';
+            };
+
+
+            // --- Event Listeners and Initialization ---
             scene.addEventListener('gps-camera-update-position', e => {
+                currentCameraPosition = e.detail.position;
                 if (!gpsReady) {
                     gpsReady = true;
                     loader.style.display = 'none';
                     uiContainer.classList.remove('hidden');
-                    console.log('GPS Ready. Position:', e.detail.position);
-                    // Automatically render the initial boundaries
                     renderBoundaries();
                 }
             });
 
+            calibrateBtn.addEventListener('click', () => {
+                if (!currentCameraPosition) { alert('まだGPSが現在地を特定できていません。'); return; }
+                const actualX = parseFloat(calibXInput.value);
+                const actualY = parseFloat(calibYInput.value);
+                if (isNaN(actualX) || isNaN(actualY)) { alert('基準点のXY座標を正しく入力してください。'); return; }
+                const { lat: actualLat, lon: actualLon } = convertJprcsToLatLon(actualX, actualY);
+                latOffset = currentCameraPosition.latitude - actualLat;
+                lonOffset = currentCameraPosition.longitude - actualLon;
+                offsetInfo.innerHTML = `補正完了 (緯度経度換算)<br>緯度ズレ: ${latOffset.toFixed(7)}, 経度ズレ: ${lonOffset.toFixed(7)}`;
+                alert('位置を補正しました。');
+                renderBoundaries();
+            });
+
+            resetCalibBtn.addEventListener('click', () => {
+                latOffset = 0; lonOffset = 0;
+                offsetInfo.textContent = '補正はリセットされました。';
+                calibXInput.value = ''; calibYInput.value = '';
+                alert('補正をリセットしました。');
+                renderBoundaries();
+            });
+
+            kmlInput.addEventListener('change', handleKmlFile);
             addPointBtn.addEventListener('click', () => addCoordinateRow());
             updateBtn.addEventListener('click', renderBoundaries);
             clearBtn.addEventListener('click', () => {
-                 boundaryContainer.innerHTML = '';
                  coordinatesList.innerHTML = '';
+                 renderBoundaries();
             });
 
-            // Initialize UI with sample data
-            initialCoordinates.forEach(coord => addCoordinateRow(coord.lat, coord.lon));
+            initialJprcsCoordinates.forEach(coord => addCoordinateRow(coord.x, coord.y));
         };
     </script>
 </body>
