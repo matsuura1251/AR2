@@ -53,7 +53,6 @@
             width: 48px;
             height: 48px;
         }
-        /* =====【追加】スタート画面用のスタイル ===== */
         #start-overlay {
             position: fixed;
             top: 0;
@@ -70,11 +69,16 @@
             text-align: center;
             padding: 1rem;
         }
+        /* =====【追加】エラーメッセージ用のスタイル ===== */
+        .error-message {
+            background-color: #b91c1c; /* red-700 */
+            padding: 1rem;
+            border-radius: 0.5rem;
+        }
     </style>
 </head>
 <body style="margin: 0; overflow: hidden;">
 
-    <!-- =====【変更】最初はARシーンを非表示にしておく ===== -->
     <a-scene
         id="ar-scene"
         vr-mode-ui="enabled: false"
@@ -82,31 +86,27 @@
         renderer="logarithmicDepthBuffer: true;"
         style="display: none;"
     >
-        <!-- GPSと連動するカメラ -->
         <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
-        
-        <!-- 境界線オブジェクトをまとめる親エンティティ -->
         <a-entity id="boundary-parent"></a-entity>
     </a-scene>
 
-    <!-- =====【追加】スタート画面 ===== -->
     <div id="start-overlay">
         <h1 class="text-3xl font-bold mb-4">Web AR 土地境界ビューア</h1>
-        <p class="mb-8 max-w-md">このアプリはカメラとモーションセンサー、GPSを使用します。ブラウザから許可を求められた場合は「許可」をタップしてください。</p>
-        <button id="start-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg text-xl">
-            ARを開始
-        </button>
+        <div id="start-message-panel">
+            <p class="mb-8 max-w-md">このアプリはカメラとモーションセンサー、GPSを使用します。ブラウザから許可を求められた場合は「許可」をタップしてください。</p>
+            <button id="start-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg text-xl">
+                ARを開始
+            </button>
+        </div>
     </div>
 
-
-    <!-- UI要素 -->
     <div class="ui-container text-center">
         <div id="status-message" class="mb-4 p-2 bg-black/50 rounded-lg">
-            KMLファイルを選択してください
+            ARを開始してください
         </div>
         <div class="flex justify-center gap-4">
             <label for="kml-file-input" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg cursor-pointer">
-                📁 KML読込
+                � KML読込
             </label>
             <input type="file" id="kml-file-input" accept=".kml" class="hidden">
             <button id="reset-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg">
@@ -115,23 +115,19 @@
         </div>
     </div>
 
-    <!-- 位置補正コントロールパネル -->
     <div id="control-panel" class="control-panel" style="display: none;">
-        <!-- ... (コントロールパネルの中身は変更なし) ... -->
         <div class="placeholder"></div><button data-axis="z" data-dir="-1">▲</button><div class="placeholder"></div>
         <button data-axis="x" data-dir="-1">◀</button><button data-axis="y" data-dir="-1">▼</button><button data-axis="x" data-dir="1">▶</button>
         <div class="placeholder"></div><button data-axis="z" data-dir="1">▼</button><div class="placeholder"></div>
         <div class="placeholder"></div><button data-axis="y" data-dir="1">▲</button><div class="placeholder"></div>
     </div>
 
-
     <script>
         window.addEventListener('DOMContentLoaded', () => {
-            // =====【追加】スタート画面関連の要素を取得 =====
             const startOverlay = document.getElementById('start-overlay');
             const startButton = document.getElementById('start-button');
+            const startMessagePanel = document.getElementById('start-message-panel');
             const scene = document.getElementById('ar-scene');
-
             const statusMessage = document.getElementById('status-message');
             const fileInput = document.getElementById('kml-file-input');
             const resetButton = document.getElementById('reset-button');
@@ -141,49 +137,60 @@
             let baseLocation = null;
             let boundaryCoordinates = [];
 
-            // =====【追加】スタートボタンがクリックされたときの処理 =====
+            // =====【追加】HTTPS接続でない場合に警告を表示 =====
+            if (window.location.protocol !== 'https:') {
+                startMessagePanel.innerHTML = `
+                    <div class="error-message">
+                        <p class="font-bold text-lg mb-2">安全な接続が必要です</p>
+                        <p>Web AR機能を使用するには、このページをHTTPSで開く必要があります。</p>
+                        <p class="mt-2 text-sm">現在のアドレス: ${window.location.protocol}//...</p>
+                    </div>
+                `;
+                return; // 処理を中断
+            }
+
             startButton.addEventListener('click', () => {
-                // iOS 13以降で必要なモーションセンサーの許可をリクエスト
+                startButton.textContent = '許可を確認中...';
+                startButton.disabled = true;
+
                 if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                     DeviceMotionEvent.requestPermission()
                         .then(permissionState => {
                             if (permissionState === 'granted') {
-                                // 許可されたらARを開始
                                 startAR();
                             } else {
-                                alert('AR機能を使用するには、モーションセンサーへのアクセス許可が必要です。');
+                                // =====【変更】alertを廃止し、UIにメッセージを表示 =====
+                                statusMessage.textContent = 'エラー: モーションセンサーの許可が必要です。ページを再読み込みして再度お試しください。';
+                                startButton.textContent = 'ARを開始';
+                                startButton.disabled = false;
                             }
                         })
-                        .catch(console.error);
+                        .catch(error => {
+                            console.error(error);
+                            statusMessage.textContent = 'センサー許可中にエラーが発生しました。';
+                        });
                 } else {
-                    // iOS 13より前、またはAndroidの場合は直接ARを開始
                     startAR();
                 }
             });
 
-            // =====【追加】ARを開始する関数 =====
             function startAR() {
-                // スタート画面を非表示にする
                 startOverlay.style.display = 'none';
-                // ARシーンを表示して有効化する
                 scene.style.display = 'block';
-                scene.play(); // シーンのアニメーションやプロセスを開始
+                scene.play();
+                statusMessage.textContent = 'KMLファイルを選択してください';
             }
 
-            // ファイルが選択されたときの処理
             fileInput.addEventListener('change', (event) => {
                 const file = event.target.files[0];
                 if (!file) return;
-
                 statusMessage.textContent = 'KMLファイルを読み込んでいます...';
                 const reader = new FileReader();
                 reader.onload = (e) => {
                     try {
                         const kmlText = e.target.result;
                         const coords = parseKML(kmlText);
-                        if (coords.length === 0) {
-                            throw new Error('KMLから座標が見つかりませんでした。');
-                        }
+                        if (coords.length === 0) throw new Error('KMLから座標が見つかりませんでした。');
                         boundaryCoordinates = coords;
                         statusMessage.textContent = 'KML読込完了。現在地を測位中...';
                         startGps();
@@ -194,7 +201,6 @@
                 reader.readAsText(file);
             });
             
-            // リセットボタンの処理
             resetButton.addEventListener('click', () => {
                 boundaryParent.innerHTML = '';
                 baseLocation = null;
@@ -204,23 +210,19 @@
                 fileInput.value = '';
             });
 
-            // KMLテキストを解析して座標の配列を返す
             function parseKML(kmlText) {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(kmlText, 'text/xml');
                 const coordinatesTags = xmlDoc.getElementsByTagName('coordinates');
                 if (coordinatesTags.length === 0) return [];
-
                 const coordString = coordinatesTags[0].textContent.trim();
                 const points = coordString.split(/\s+/);
-                
                 return points.map(p => {
                     const [lon, lat] = p.split(',');
                     return { latitude: parseFloat(lat), longitude: parseFloat(lon) };
                 }).filter(c => !isNaN(c.latitude) && !isNaN(c.longitude));
             }
 
-            // GPSの測位を開始
             function startGps() {
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
@@ -235,58 +237,44 @@
                 );
             }
 
-            // 境界線をAR空間に配置
             function placeBoundaries() {
                 if (!baseLocation || boundaryCoordinates.length === 0) return;
-
                 boundaryParent.innerHTML = '';
                 boundaryParent.setAttribute('position', '0 0 0');
-                // gps-new-entity-placeは、緯度経度に基づいてエンティティを配置します。
-                // ここでは親エンティティをユーザーの初期位置に設定します。
                 boundaryParent.setAttribute('gps-new-entity-place', {
                     latitude: baseLocation.latitude,
                     longitude: baseLocation.longitude
                 });
-
-                const arPoints = boundaryCoordinates.map(coord => 
-                    convertToARCoordinates(coord, baseLocation)
-                );
-
+                const arPoints = boundaryCoordinates.map(coord => convertToARCoordinates(coord, baseLocation));
                 arPoints.forEach((point, index) => {
                     const sphere = document.createElement('a-sphere');
                     sphere.setAttribute('radius', '0.3');
                     sphere.setAttribute('color', 'red');
                     sphere.setAttribute('position', `${point.x} ${point.y} ${point.z}`);
                     boundaryParent.appendChild(sphere);
-
                     if (index > 0) {
                         const prevPoint = arPoints[index - 1];
                         const line = createLine(prevPoint, point, 'yellow');
                         boundaryParent.appendChild(line);
                     }
                 });
-                
                 statusMessage.textContent = '境界線を配置しました。位置補正パネルで調整できます。';
                 controlPanel.style.display = 'grid';
             }
 
-            // 緯度経度を基準点からの相対座標(m)に変換
             function convertToARCoordinates(targetCoord, baseCoord) {
                 const earthRadius = 6378137.0;
                 const baseLatRad = baseCoord.latitude * Math.PI / 180;
                 const targetLatRad = targetCoord.latitude * Math.PI / 180;
                 const dLat = targetLatRad - baseLatRad;
                 const dLon = (targetCoord.longitude - baseCoord.longitude) * Math.PI / 180;
-                
                 const x = dLon * earthRadius * Math.cos(baseLatRad);
-                const z = -dLat * earthRadius; // A-Frameでは-Zが北
-                return { x: x, y: 0, z: z }; // 高度は0で固定
+                const z = -dLat * earthRadius;
+                return { x: x, y: 0, z: z };
             }
 
-            // 2点間に線を引く
             function createLine(start, end, color) {
                 const lineEntity = document.createElement('a-entity');
-                // lineコンポーネントを使用
                 lineEntity.setAttribute('line', {
                     start: `${start.x} ${start.y} ${start.z}`,
                     end: `${end.x} ${end.y} ${end.z}`,
@@ -296,14 +284,11 @@
                 return lineEntity;
             }
 
-            // 位置補正ボタンの処理
             controlPanel.addEventListener('click', (e) => {
                 if (e.target.tagName !== 'BUTTON') return;
-
                 const axis = e.target.dataset.axis;
                 const dir = parseInt(e.target.dataset.dir, 10);
-                const step = 0.5; // 1クリックで動く距離(m)
-
+                const step = 0.5;
                 const currentPos = boundaryParent.getAttribute('position');
                 currentPos[axis] += dir * step;
                 boundaryParent.setAttribute('position', currentPos);
@@ -312,3 +297,4 @@
     </script>
 </body>
 </html>
+�
