@@ -53,15 +53,34 @@
             width: 48px;
             height: 48px;
         }
+        /* =====【追加】スタート画面用のスタイル ===== */
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            padding: 1rem;
+        }
     </style>
 </head>
 <body style="margin: 0; overflow: hidden;">
 
-    <!-- A-FrameのARシーン -->
+    <!-- =====【変更】最初はARシーンを非表示にしておく ===== -->
     <a-scene
+        id="ar-scene"
         vr-mode-ui="enabled: false"
         arjs="sourceType: webcam; trackingMethod: best; debugUIEnabled: false;"
         renderer="logarithmicDepthBuffer: true;"
+        style="display: none;"
     >
         <!-- GPSと連動するカメラ -->
         <a-camera gps-new-camera="gpsMinDistance: 5"></a-camera>
@@ -69,6 +88,16 @@
         <!-- 境界線オブジェクトをまとめる親エンティティ -->
         <a-entity id="boundary-parent"></a-entity>
     </a-scene>
+
+    <!-- =====【追加】スタート画面 ===== -->
+    <div id="start-overlay">
+        <h1 class="text-3xl font-bold mb-4">Web AR 土地境界ビューア</h1>
+        <p class="mb-8 max-w-md">このアプリはカメラとモーションセンサー、GPSを使用します。ブラウザから許可を求められた場合は「許可」をタップしてください。</p>
+        <button id="start-button" class="bg-green-600 hover:bg-green-700 text-white font-bold py-4 px-8 rounded-lg text-xl">
+            ARを開始
+        </button>
+    </div>
+
 
     <!-- UI要素 -->
     <div class="ui-container text-center">
@@ -81,34 +110,28 @@
             </label>
             <input type="file" id="kml-file-input" accept=".kml" class="hidden">
             <button id="reset-button" class="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg">
-                � リセット
+                🔄 リセット
             </button>
         </div>
     </div>
 
     <!-- 位置補正コントロールパネル -->
     <div id="control-panel" class="control-panel" style="display: none;">
-        <div class="placeholder"></div>
-        <button data-axis="z" data-dir="-1">▲</button> <!-- 前 -->
-        <div class="placeholder"></div>
-
-        <button data-axis="x" data-dir="-1">◀</button> <!-- 左 -->
-        <button data-axis="y" data-dir="-1">▼</button> <!-- 下 -->
-        <button data-axis="x" data-dir="1">▶</button> <!-- 右 -->
-
-        <div class="placeholder"></div>
-        <button data-axis="z" data-dir="1">▼</button> <!-- 後 -->
-        <div class="placeholder"></div>
-        
-        <div class="placeholder"></div>
-        <button data-axis="y" data-dir="1">▲</button> <!-- 上 -->
-        <div class="placeholder"></div>
+        <!-- ... (コントロールパネルの中身は変更なし) ... -->
+        <div class="placeholder"></div><button data-axis="z" data-dir="-1">▲</button><div class="placeholder"></div>
+        <button data-axis="x" data-dir="-1">◀</button><button data-axis="y" data-dir="-1">▼</button><button data-axis="x" data-dir="1">▶</button>
+        <div class="placeholder"></div><button data-axis="z" data-dir="1">▼</button><div class="placeholder"></div>
+        <div class="placeholder"></div><button data-axis="y" data-dir="1">▲</button><div class="placeholder"></div>
     </div>
 
 
     <script>
         window.addEventListener('DOMContentLoaded', () => {
-            const scene = document.querySelector('a-scene');
+            // =====【追加】スタート画面関連の要素を取得 =====
+            const startOverlay = document.getElementById('start-overlay');
+            const startButton = document.getElementById('start-button');
+            const scene = document.getElementById('ar-scene');
+
             const statusMessage = document.getElementById('status-message');
             const fileInput = document.getElementById('kml-file-input');
             const resetButton = document.getElementById('reset-button');
@@ -117,6 +140,35 @@
             
             let baseLocation = null;
             let boundaryCoordinates = [];
+
+            // =====【追加】スタートボタンがクリックされたときの処理 =====
+            startButton.addEventListener('click', () => {
+                // iOS 13以降で必要なモーションセンサーの許可をリクエスト
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    DeviceMotionEvent.requestPermission()
+                        .then(permissionState => {
+                            if (permissionState === 'granted') {
+                                // 許可されたらARを開始
+                                startAR();
+                            } else {
+                                alert('AR機能を使用するには、モーションセンサーへのアクセス許可が必要です。');
+                            }
+                        })
+                        .catch(console.error);
+                } else {
+                    // iOS 13より前、またはAndroidの場合は直接ARを開始
+                    startAR();
+                }
+            });
+
+            // =====【追加】ARを開始する関数 =====
+            function startAR() {
+                // スタート画面を非表示にする
+                startOverlay.style.display = 'none';
+                // ARシーンを表示して有効化する
+                scene.style.display = 'block';
+                scene.play(); // シーンのアニメーションやプロセスを開始
+            }
 
             // ファイルが選択されたときの処理
             fileInput.addEventListener('change', (event) => {
@@ -149,7 +201,6 @@
                 boundaryCoordinates = [];
                 controlPanel.style.display = 'none';
                 statusMessage.textContent = 'リセットしました。KMLファイルを選択してください。';
-                // ファイル入力をリセットして同じファイルを再度選択できるようにする
                 fileInput.value = '';
             });
 
@@ -188,11 +239,10 @@
             function placeBoundaries() {
                 if (!baseLocation || boundaryCoordinates.length === 0) return;
 
-                // 既存のオブジェクトをクリア
                 boundaryParent.innerHTML = '';
-                // 親エンティティの位置をリセット
                 boundaryParent.setAttribute('position', '0 0 0');
-                // 親エンティティをカメラの位置に配置
+                // gps-new-entity-placeは、緯度経度に基づいてエンティティを配置します。
+                // ここでは親エンティティをユーザーの初期位置に設定します。
                 boundaryParent.setAttribute('gps-new-entity-place', {
                     latitude: baseLocation.latitude,
                     longitude: baseLocation.longitude
@@ -203,14 +253,12 @@
                 );
 
                 arPoints.forEach((point, index) => {
-                    // 各頂点に球を配置
                     const sphere = document.createElement('a-sphere');
                     sphere.setAttribute('radius', '0.3');
                     sphere.setAttribute('color', 'red');
                     sphere.setAttribute('position', `${point.x} ${point.y} ${point.z}`);
                     boundaryParent.appendChild(sphere);
 
-                    // 頂点間を線で結ぶ
                     if (index > 0) {
                         const prevPoint = arPoints[index - 1];
                         const line = createLine(prevPoint, point, 'yellow');
@@ -237,21 +285,15 @@
 
             // 2点間に線を引く
             function createLine(start, end, color) {
-                const line = document.createElement('a-cylinder');
-                const distance = Math.sqrt(Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2) + Math.pow(end.z - start.z, 2));
-                
-                line.setAttribute('radius', '0.05');
-                line.setAttribute('height', distance);
-                line.setAttribute('color', color);
-                
-                // 位置と向きを計算
-                const midPoint = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2, z: (start.z + end.z) / 2 };
-                line.setAttribute('position', `${midPoint.x} ${midPoint.y} ${midPoint.z}`);
-                
-                const target = new THREE.Vector3(end.x, end.y, end.z);
-                line.object3D.lookAt(target);
-
-                return line;
+                const lineEntity = document.createElement('a-entity');
+                // lineコンポーネントを使用
+                lineEntity.setAttribute('line', {
+                    start: `${start.x} ${start.y} ${start.z}`,
+                    end: `${end.x} ${end.y} ${end.z}`,
+                    color: color,
+                    opacity: 1.0
+                });
+                return lineEntity;
             }
 
             // 位置補正ボタンの処理
